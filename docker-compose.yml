@@ -1,0 +1,135 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: auditai-postgres
+    environment:
+      POSTGRES_DB: auditai
+      POSTGRES_USER: auditai
+      POSTGRES_PASSWORD: auditai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auditai -d auditai"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: auditai-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: auditai-chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/data
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /data/chroma
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: auditai-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://auditai:auditai@postgres:5432/auditai
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HTTP_HOST: chroma
+      CHROMA_HTTP_PORT: 8001
+      CHROMA_PERSIST_DIR: /data/chroma
+      REPORT_STORAGE_DIR: /app/storage/reports
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: auditai-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://auditai:auditai@postgres:5432/auditai
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HTTP_HOST: chroma
+      CHROMA_HTTP_PORT: 8001
+      CHROMA_PERSIST_DIR: /data/chroma
+      REPORT_STORAGE_DIR: /app/storage/reports
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    command: celery -A app.tasks.celery_app.celery_app worker --loglevel=info
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: auditai-beat
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://auditai:auditai@postgres:5432/auditai
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HTTP_HOST: chroma
+      CHROMA_HTTP_PORT: 8001
+      CHROMA_PERSIST_DIR: /data/chroma
+      REPORT_STORAGE_DIR: /app/storage/reports
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    command: celery -A app.tasks.celery_app.celery_app beat --loglevel=info
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: auditai-frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  chroma_data:
