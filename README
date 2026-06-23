@@ -1,0 +1,267 @@
+# 🔍 AuditAI — Sistema Inteligente de Planificación de Auditorías de Software
+
+> Aplicación web que utiliza Inteligencia Artificial con RAG para planificar auditorías de software en sus fases de **Requerimiento de Evaluación**, **Diseño de Evaluación** y **Ejecución**.
+
+---
+
+## 📋 Tabla de contenidos
+
+- [Descripción general](#descripción-general)
+- [Arquitectura del sistema](#arquitectura-del-sistema)
+- [Requisitos del sistema](#requisitos-del-sistema)
+- [Instalación y ejecución](#instalación-y-ejecución)
+- [Componentes principales](#componentes-principales)
+- [Endpoints de la API](#endpoints-de-la-api)
+- [Demo](#demo)
+
+---
+
+## Descripción general
+
+**AuditAI** es una aplicación web full-stack que asiste a auditores de software en la planificación y ejecución de auditorías. La IA, potenciada por RAG (Retrieval-Augmented Generation), accede a una base de conocimiento con estándares (ISO 25010, IEEE 1028, CMMI) para generar planes de auditoría personalizados.
+
+### Funcionalidades principales
+
+- **Fase 1 — Requerimiento de Evaluación**: captura de contexto del sistema a auditar (tipo de software, alcance, objetivos).
+- **Fase 2 — Diseño de Evaluación**: generación automática del plan de auditoría con criterios, métricas e instrumentos.
+- **Fase 3 — Ejecución**: seguimiento del progreso, registro de hallazgos y generación del reporte final.
+- **Dashboard**: visualización del estado de todas las auditorías en curso.
+
+---
+
+## Arquitectura del sistema
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        FRONTEND                             │
+│              React + Tailwind CSS + Axios                   │
+│          (accesible: WCAG 2.1 AA, roles ARIA)               │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTP / REST
+┌──────────────────────▼──────────────────────────────────────┐
+│                     API GATEWAY                             │
+│                  FastAPI (Python)                           │
+│         Auth JWT · Rate limiting · Logging                  │
+└────────┬──────────────────────────────────┬─────────────────┘
+         │                                  │
+┌────────▼─────────┐            ┌───────────▼───────────────┐
+│   BASE DE DATOS  │            │      SERVICIO DE IA        │
+│   PostgreSQL     │            │   Claude API (Anthropic)   │
+│   + pgvector     │            │   + Pipeline RAG           │
+│                  │            │   + LangChain              │
+└──────────────────┘            └───────────┬───────────────┘
+                                            │
+                                ┌───────────▼───────────────┐
+                                │      VECTOR STORE          │
+                                │   ChromaDB / pgvector      │
+                                │  (ISO 25010, IEEE 1028,    │
+                                │   CMMI, normas de audit.)  │
+                                └───────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    AUTOMATIZACIÓN                           │
+│         Celery + Redis (tareas en background)               │
+│   - Generación automática de reportes                       │
+│   - Recordatorios de hitos de auditoría                     │
+│   - Indexación periódica de documentos RAG                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Stack tecnológico
+
+| Capa           | Tecnología                           |
+| -------------- | ------------------------------------ |
+| Frontend       | React 18, Tailwind CSS, React Query  |
+| API            | FastAPI (Python 3.11)                |
+| IA             | Claude API (Anthropic) via LangChain |
+| RAG            | LangChain + ChromaDB o pgvector      |
+| Base de datos  | PostgreSQL 15 + pgvector             |
+| Automatización | Celery + Redis                       |
+| Contenedores   | Docker + Docker Compose              |
+| CI/CD          | GitHub Actions                       |
+
+---
+
+## Requisitos del sistema
+
+- Docker >= 24.0 y Docker Compose >= 2.20
+- Python 3.11+ (si se ejecuta sin Docker)
+- Node.js 20+ (si se ejecuta sin Docker)
+- API Key de Anthropic (Claude)
+
+---
+
+## Instalación y ejecución
+
+### Opción 1 — Docker Compose (recomendado)
+
+```bash
+# 1. Clonar el repositorio
+git clone https://github.com/TU_USUARIO/audit-ai.git
+cd audit-ai
+
+# 2. Copiar variables de entorno
+cp .env.example .env
+
+# 3. Editar .env y agregar tu API key de Anthropic
+#    ANTHROPIC_API_KEY=sk-ant-...
+
+# 4. Levantar todos los servicios
+docker compose up --build
+
+# La app estará disponible en:
+#   Frontend:  http://localhost:3000
+#   API docs:  http://localhost:8000/docs
+```
+
+### Opción 2 — Ejecución manual
+
+**Backend:**
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env            # Configurar variables
+uvicorn app.main:app --reload --port 8000
+```
+
+**Frontend:**
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local      # Configurar VITE_API_URL
+npm run dev
+```
+
+**Workers de automatización:**
+
+```bash
+cd backend
+celery -A app.tasks worker --loglevel=info
+celery -A app.tasks beat --loglevel=info   # Tareas programadas
+```
+
+### Variables de entorno requeridas
+
+```env
+# .env
+ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=postgresql://user:password@localhost:5432/auditai
+REDIS_URL=redis://localhost:6379
+SECRET_KEY=tu-clave-secreta-jwt
+CHROMA_PERSIST_DIR=./data/chroma
+```
+
+---
+
+## Componentes principales
+
+### 1. RAG — Retrieval-Augmented Generation
+
+La base de conocimiento contiene documentos indexados como vectores:
+
+- ISO/IEC 25010 (calidad del producto software)
+- IEEE 1028 (revisiones de software)
+- CMMI for Development
+- Plantillas internas de auditoría
+
+Cuando el usuario ingresa el contexto de su auditoría, el sistema:
+
+1. Convierte la consulta a embeddings.
+2. Recupera los fragmentos más relevantes del vector store.
+3. Los inyecta como contexto en el prompt enviado a Claude.
+
+```python
+# Ejemplo simplificado del pipeline RAG
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+chain = RetrievalQA.from_chain_type(
+    llm=ChatAnthropic(model="claude-sonnet-4-6"),
+    retriever=retriever,
+    chain_type="stuff"
+)
+result = chain.invoke({"query": user_context})
+```
+
+### 2. Automatización (Celery)
+
+Tareas programadas y en background:
+
+- `generate_report_task`: genera el PDF del reporte al completar la auditoría.
+- `send_reminder_task`: envía notificaciones de hitos próximos.
+- `reindex_documents_task`: re-indexa documentos RAG cada semana.
+
+### 3. API REST
+
+Documentación interactiva disponible en `/docs` (Swagger UI) al ejecutar el proyecto.
+
+### 4. Accesibilidad (WCAG 2.1 AA)
+
+- Navegación completa por teclado.
+- Roles ARIA en todos los componentes interactivos.
+- Contraste mínimo 4.5:1 en texto normal.
+- Etiquetas descriptivas en formularios.
+- Indicadores de foco visibles.
+
+---
+
+## Endpoints de la API
+
+```
+POST   /api/v1/audits              → Crear nueva auditoría
+GET    /api/v1/audits              → Listar auditorías
+GET    /api/v1/audits/{id}         → Obtener auditoría por ID
+
+POST   /api/v1/audits/{id}/plan    → Generar plan con IA (RAG)
+PUT    /api/v1/audits/{id}/phase   → Actualizar fase actual
+
+POST   /api/v1/audits/{id}/report  → Generar reporte final (async)
+GET    /api/v1/audits/{id}/report  → Descargar reporte PDF
+
+GET    /api/v1/health              → Health check
+```
+
+---
+
+## Estructura del repositorio
+
+```
+audit-ai/
+├── backend/
+│   ├── app/
+│   │   ├── api/          # Rutas FastAPI
+│   │   ├── core/         # Config, seguridad, DB
+│   │   ├── models/       # Modelos SQLAlchemy
+│   │   ├── services/     # Lógica de negocio
+│   │   │   ├── ai/       # Pipeline RAG + Claude
+│   │   │   └── audit/    # Lógica de auditoría
+│   │   └── tasks/        # Tareas Celery
+│   ├── data/
+│   │   └── knowledge/    # Documentos para RAG
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── components/   # Componentes React
+│   │   ├── pages/        # Vistas principales
+│   │   └── api/          # Cliente HTTP
+│   ├── package.json
+│   └── Dockerfile
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+---
+
+## Demo
+
+> _Agregar aquí el link al video demo o capturas de pantalla una vez completado._
+
+---
+
+## Licencia
+
+MIT — Proyecto académico, Universidad Austral de Chile.
