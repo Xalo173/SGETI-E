@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     app_name: str = "AuditAI"
     app_env: str = Field(default="development", alias="APP_ENV")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
-    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
     database_url: str = Field(default="postgresql+psycopg://auditai:auditai@localhost:5432/auditai", alias="DATABASE_URL")
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     chroma_http_host: str = Field(default="localhost", alias="CHROMA_HTTP_HOST")
